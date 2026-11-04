@@ -63,16 +63,13 @@ def feed_worker():
     stream_prices(on_price)
 
 
-def init_stream():
-    global _started
-    with _lock:
-        if _started:
-            return
-        _started = True
 
-    print(f"[config] instrument = {config.get('OANDA_INSTRUMENT')}", flush=True)
-    print(f"[config] token set  = {bool(config.get('OANDA_API_TOKEN'))}", flush=True)
+def init_stream():
+    print("[INIT] กำลังเริ่ม background feed_worker...", flush=True)
     socketio.start_background_task(feed_worker)
+
+
+# สั่งรันทันทีที่ไฟล์ถูก import (Gunicorn จะอ่านตรงนี้ด้วย)
 
 
 # รันอัตโนมัติทั้งตอนใช้ python app.py และผ่าน Gunicorn
