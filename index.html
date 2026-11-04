@@ -17,16 +17,21 @@
 </head>
 <body>
 <div id="bar">
-  <span id="symbol">XAU/USD</span>
+  <span id="symbol">--</span>
   <span id="price">--</span>
 </div>
 <div id="chart"></div>
 
 <script>
 // ⭐ แก้ URL ตรงนี้: local ทดสอบ หรือ URL จาก deploy/tunnel
-const API_URL = "http://localhost:5000";
-// const API_URL = "https://xauusd-xxxx.onrender.com";
-
+//const API_URL = "http://localhost:5000";
+const API_URL = "https://gsm-938z.onrender.com/";
+  fetch('/api/config')
+    .then(r => r.json())
+    .then(cfg => {
+      document.getElementById('symbol').textContent =
+        cfg.instrument.replace('_', '/');
+    });
 const chart = LightweightCharts.createChart(
   document.getElementById("chart"),
   { layout: { background:{type:"solid", color:"#131722"}, textColor:"#aaa",
