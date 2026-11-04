@@ -15,6 +15,12 @@ builder = None   # สร้างใน main ก่อนเริ่ม stream
 
 
 # ---------- REST API ----------
+
+@app.route('/api/config')
+def public_config():
+    return jsonify({'instrument': config.get('OANDA_INSTRUMENT', 'XAU_USD')})
+
+
 @app.route("/api/history")
 def history():
     return jsonify({"candles": builder.snapshot(500)})
