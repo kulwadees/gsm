@@ -62,7 +62,8 @@ fetch(`${API_URL}/api/history`)
 
 // รับ candle สดจาก server ทุก tick
 let lastClose = null;
-const socket = io(API_URL, { transports:["websocket"] });
+//const socket = io(API_URL, { transports:["websocket"] });
+const socket = io();
 socket.on("candle", c => {
   candleSeries.update({
     time: c.time, open: c.open, high: c.high,
