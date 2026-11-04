@@ -3,6 +3,7 @@
 import os
 import threading
 import time
+
 from flask import Flask, jsonify, send_from_directory
 from flask_socketio import SocketIO
 
@@ -13,15 +14,15 @@ from candles import CandleBuilder
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-builder = None
+builder = None          # จะถูกสร้างใน background หลังโหลดประวัติเสร็จ
 _started = False
 _lock = threading.Lock()
 
 
 # ---------- REST API ----------
-@app.route('/api/config')
+@app.route("/api/config")
 def public_config():
-    return jsonify({'instrument': config.get('OANDA_INSTRUMENT', 'XAU_USD')})
+    return jsonify({"instrument": config.get("OANDA_INSTRUMENT", "XAU_USD")})
 
 
 @app.route("/api/history")
@@ -43,9 +44,11 @@ def index():
     return send_from_directory(".", "index.html")
 
 
-# ---------- Background: streaming จาก OANDA ----------
+# ---------- Background: seed ประวัติ + streaming จาก OANDA ----------
 def feed_worker():
     global builder
+
+    # 1) seed ประวัติก่อน (ถ้าพลาดจะลองใหม่ ไม่ทำให้ server ล่ม)
     while builder is None:
         try:
             print("กำลังโหลดประวัติ M1 จาก OANDA...", flush=True)
@@ -56,23 +59,29 @@ def feed_worker():
             print(f"[seed] โหลดประวัติไม่สำเร็จ: {e} — ลองใหม่ใน 10 วินาที", flush=True)
             time.sleep(10)
 
+    # 2) เริ่ม stream
     def on_price(tick):
         builder.on_tick(tick)
-        socketio.emit("candle", builder.latest())
+        socketio.emit("candle", builder.latest())   # push ทุก tick ไป frontend
 
-    stream_prices(on_price)
-
+    stream_prices(on_price)                          # loop reconnect ในตัว
 
 
 def init_stream():
+    """เริ่ม background ครั้งเดียว — ทำงานทั้ง python app.py และ gunicorn"""
+    global _started
+    with _lock:
+        if _started:
+            return
+        _started = True
     print("[INIT] กำลังเริ่ม background feed_worker...", flush=True)
+    print(f"[config] instrument = {config.get('OANDA_INSTRUMENT')}", flush=True)
+    print(f"[config] env        = {config.get('OANDA_ENV')}", flush=True)
+    print(f"[config] token set  = {bool(config.get('OANDA_API_TOKEN'))}", flush=True)
     socketio.start_background_task(feed_worker)
 
 
-# สั่งรันทันทีที่ไฟล์ถูก import (Gunicorn จะอ่านตรงนี้ด้วย)
-
-
-# รันอัตโนมัติทั้งตอนใช้ python app.py และผ่าน Gunicorn
+# เรียกตอน import → gunicorn ก็รันส่วนนี้
 init_stream()
 
 
