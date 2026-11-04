@@ -5,3 +5,4 @@ gunicorn
 gevent
 gevent-websocket
 python-dotenv
+simple-websocket
