@@ -1,21 +1,24 @@
-#server.py
+# app.py
 """ตัวหลัก — REST API + SocketIO push ราคา realtime"""
+import os
 import threading
+import time
 from flask import Flask, jsonify, send_from_directory
 from flask_socketio import SocketIO
 
+import config
 from oanda_client import get_history, stream_prices
 from candles import CandleBuilder
 
 app = Flask(__name__)
-# local ใช้ "threading", deploy บน Render/Railway เปลี่ยนเป็น "gevent"
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-builder = None   # สร้างใน main ก่อนเริ่ม stream
+builder = None
+_started = False
+_lock = threading.Lock()
 
 
 # ---------- REST API ----------
-
 @app.route('/api/config')
 def public_config():
     return jsonify({'instrument': config.get('OANDA_INSTRUMENT', 'XAU_USD')})
@@ -23,11 +26,17 @@ def public_config():
 
 @app.route("/api/history")
 def history():
+    if builder is None:
+        return jsonify({"candles": [], "error": "loading"}), 503
     return jsonify({"candles": builder.snapshot(500)})
+
 
 @app.route("/api/price")
 def price():
+    if builder is None:
+        return jsonify({}), 503
     return jsonify(builder.latest() or {})
+
 
 @app.route("/")
 def index():
@@ -36,21 +45,41 @@ def index():
 
 # ---------- Background: streaming จาก OANDA ----------
 def feed_worker():
+    global builder
+    while builder is None:
+        try:
+            print("กำลังโหลดประวัติ M1 จาก OANDA...", flush=True)
+            seed = get_history("M1", 500)
+            builder = CandleBuilder(seed)
+            print(f"พร้อม — มี {len(seed)} แท่งเริ่มต้น", flush=True)
+        except Exception as e:
+            print(f"[seed] โหลดประวัติไม่สำเร็จ: {e} — ลองใหม่ใน 10 วินาที", flush=True)
+            time.sleep(10)
+
     def on_price(tick):
         builder.on_tick(tick)
-        c = builder.latest()
-        socketio.emit("candle", c)   # push ทุก tick ไป frontend
-    stream_prices(on_price)          # loop reconnect ในตัว
+        socketio.emit("candle", builder.latest())
+
+    stream_prices(on_price)
+
+
+def init_stream():
+    global _started
+    with _lock:
+        if _started:
+            return
+        _started = True
+
+    print(f"[config] instrument = {config.get('OANDA_INSTRUMENT')}", flush=True)
+    print(f"[config] token set  = {bool(config.get('OANDA_API_TOKEN'))}", flush=True)
+    socketio.start_background_task(feed_worker)
+
+
+# รันอัตโนมัติทั้งตอนใช้ python app.py และผ่าน Gunicorn
+init_stream()
 
 
 if __name__ == "__main__":
-    # ลำดับสำคัญ: seed ประวัติก่อน แล้วค่อยเริ่ม stream
-    print("กำลังโหลดประวัติ M1 จาก OANDA...")
-    seed = get_history("M1", 500)
-    builder = CandleBuilder(seed)
-    print(f"พร้อม — มี {len(seed)} แท่งเริ่มต้น")
-
-    socketio.start_background_task(feed_worker)
-    print("Server รันที่ http://localhost:5000")
-    socketio.run(app, host="0.0.0.0", port=5000,
-                 allow_unsafe_werkzeug=True)
+    port = int(os.environ.get("PORT", 5000))
+    print(f"Server รันที่ http://localhost:{port}")
+    socketio.run(app, host="0.0.0.0", port=port, allow_unsafe_werkzeug=True)

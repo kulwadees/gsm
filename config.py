@@ -20,24 +20,24 @@ DEFAULTS = {
     'TG_TOKEN': '',
     'TG_CHAT_ID': '',
     'WEB_TOKEN': '',
-    'OANDA_INSTRUMENT': '',
+    'OANDA_INSTRUMENT': 'XAU_USD',
 }
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_FILE = BASE_DIR / '.env'
 
-# .env ใช้ตอนรันในเครื่อง (บน Render จะไม่มีไฟล์นี้ → ได้ dict ว่าง)
-_file_values = dotenv_values(ENV_FILE) if ENV_FILE.exists() else {}
+# ถ้ามีไฟล์ .env ในเครื่องให้อ่านมาสำรอง (บน Render จะไม่มีไฟล์นี้)
+_raw = dotenv_values(ENV_FILE) if ENV_FILE.exists() else {}
 
 
 def _resolve(key: str) -> str:
-    # ลำดับความสำคัญ: os.environ (Render) > .env (local) > default
-    value = os.environ.get(key)
-    if value in (None, ''):
-        value = _file_values.get(key)
-    if value in (None, ''):
-        value = DEFAULTS.get(key, '')
-    return value
+    # ลำดับ: os.environ (Render Dashboard) > .env (Local) > default
+    val = os.environ.get(key)
+    if val in (None, ''):
+        val = _raw.get(key)
+    if val in (None, ''):
+        val = DEFAULTS.get(key, '')
+    return val
 
 
 config = {key: _resolve(key) for key in ALLOWED_KEYS}
@@ -45,5 +45,5 @@ config = {key: _resolve(key) for key in ALLOWED_KEYS}
 
 def get(key: str, default=None):
     """ฟังก์ชันกลางสำหรับอ่าน config"""
-    value = config.get(key)
-    return value if value not in (None, '') else default
+    val = config.get(key)
+    return val if val not in (None, '') else default
