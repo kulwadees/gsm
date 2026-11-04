@@ -67,18 +67,24 @@ def feed_worker():
     stream_prices(on_price)                          # loop reconnect ในตัว
 
 
+#def init_stream():
+ #   """เริ่ม background ครั้งเดียว — ทำงานทั้ง python app.py และ gunicorn"""
+ #   global _started
+ #   with _lock:
+ #       if _started:
+ #           return
+ #       _started = True
+ #   print("[INIT] กำลังเริ่ม background feed_worker...", flush=True)
+ #   print(f"[config] instrument = {config.get('OANDA_INSTRUMENT')}", flush=True)
+ #   print(f"[config] env        = {config.get('OANDA_ENV')}", flush=True)
+ #   print(f"[config] token set  = {bool(config.get('OANDA_API_TOKEN'))}", flush=True)
+ #   socketio.start_background_task(feed_worker)
+
 def init_stream():
-    """เริ่ม background ครั้งเดียว — ทำงานทั้ง python app.py และ gunicorn"""
-    global _started
-    with _lock:
-        if _started:
-            return
-        _started = True
     print("[INIT] กำลังเริ่ม background feed_worker...", flush=True)
-    print(f"[config] instrument = {config.get('OANDA_INSTRUMENT')}", flush=True)
-    print(f"[config] env        = {config.get('OANDA_ENV')}", flush=True)
-    print(f"[config] token set  = {bool(config.get('OANDA_API_TOKEN'))}", flush=True)
-    socketio.start_background_task(feed_worker)
+    # ใช้ Thread ปกติแทน start_background_task ของ socketio
+    t = threading.Thread(target=feed_worker, daemon=True)
+    t.start()
 
 
 # เรียกตอน import → gunicorn ก็รันส่วนนี้
