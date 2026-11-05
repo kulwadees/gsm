@@ -54,7 +54,7 @@ def ensure_started():
         if _started_pid == pid:
             return
         _started_pid = pid
-        builder = None   # กันค่าที่ติดมาจาก process แม่
+        builder = None  # กันค่าที่ติดมาจาก process แม่ mother process
         print(f"[pid {pid}] เริ่ม feed_worker", flush=True)
         print(f"[config] instrument = {config.get('OANDA_INSTRUMENT')}", flush=True)
         print(f"[config] env        = {config.get('OANDA_ENV')}", flush=True)
