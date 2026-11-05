@@ -14,9 +14,57 @@ from candles import CandleBuilder
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-builder = None          # จะถูกสร้างใน background หลังโหลดประวัติเสร็จ
-_started = False
+builder = None           # สร้างใน background หลังโหลดประวัติเสร็จ
+_started_pid = None      # pid ของ process ที่เริ่ม feed แล้ว
 _lock = threading.Lock()
+
+
+# ---------- Background: seed ประวัติ + streaming จาก OANDA ----------
+def feed_worker():
+    global builder
+    pid = os.getpid()
+
+    # 1) seed ประวัติ (พลาดแล้วลองใหม่ ไม่ทำให้ server ล่ม)
+    while True:
+        try:
+            print(f"[pid {pid}] กำลังโหลดประวัติ M1 จาก OANDA...", flush=True)
+            seed = get_history("M1", 500)
+            builder = CandleBuilder(seed)
+            print(f"[pid {pid}] พร้อม — มี {len(seed)} แท่งเริ่มต้น", flush=True)
+            break
+        except Exception as e:
+            print(f"[pid {pid}] [seed] โหลดประวัติไม่สำเร็จ: {e} — ลองใหม่ใน 10 วินาที", flush=True)
+            time.sleep(10)
+
+    # 2) เริ่ม stream
+    def on_price(tick):
+        builder.on_tick(tick)
+        socketio.emit("candle", builder.latest())
+
+    stream_prices(on_price)   # loop reconnect ในตัว
+
+
+def ensure_started():
+    """เริ่ม feed ครั้งเดียวต่อ process — เรียกจากใน process ที่รับ request จริง"""
+    global _started_pid, builder
+    pid = os.getpid()
+    if _started_pid == pid:
+        return
+    with _lock:
+        if _started_pid == pid:
+            return
+        _started_pid = pid
+        builder = None   # กันค่าที่ติดมาจาก process แม่
+        print(f"[pid {pid}] เริ่ม feed_worker", flush=True)
+        print(f"[config] instrument = {config.get('OANDA_INSTRUMENT')}", flush=True)
+        print(f"[config] env        = {config.get('OANDA_ENV')}", flush=True)
+        print(f"[config] token set  = {bool(config.get('OANDA_API_TOKEN'))}", flush=True)
+        threading.Thread(target=feed_worker, daemon=True).start()
+
+
+@app.before_request
+def _start_feed_once():
+    ensure_started()
 
 
 # ---------- REST API ----------
@@ -42,53 +90,6 @@ def price():
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
-
-
-# ---------- Background: seed ประวัติ + streaming จาก OANDA ----------
-def feed_worker():
-    global builder
-
-    # 1) seed ประวัติก่อน (ถ้าพลาดจะลองใหม่ ไม่ทำให้ server ล่ม)
-    while builder is None:
-        try:
-            print("กำลังโหลดประวัติ M1 จาก OANDA...", flush=True)
-            seed = get_history("M1", 500)
-            builder = CandleBuilder(seed)
-            print(f"พร้อม — มี {len(seed)} แท่งเริ่มต้น", flush=True)
-        except Exception as e:
-            print(f"[seed] โหลดประวัติไม่สำเร็จ: {e} — ลองใหม่ใน 10 วินาที", flush=True)
-            time.sleep(10)
-
-    # 2) เริ่ม stream
-    def on_price(tick):
-        builder.on_tick(tick)
-        socketio.emit("candle", builder.latest())   # push ทุก tick ไป frontend
-
-    stream_prices(on_price)                          # loop reconnect ในตัว
-
-
-#def init_stream():
- #   """เริ่ม background ครั้งเดียว — ทำงานทั้ง python app.py และ gunicorn"""
- #   global _started
- #   with _lock:
- #       if _started:
- #           return
- #       _started = True
- #   print("[INIT] กำลังเริ่ม background feed_worker...", flush=True)
- #   print(f"[config] instrument = {config.get('OANDA_INSTRUMENT')}", flush=True)
- #   print(f"[config] env        = {config.get('OANDA_ENV')}", flush=True)
- #   print(f"[config] token set  = {bool(config.get('OANDA_API_TOKEN'))}", flush=True)
- #   socketio.start_background_task(feed_worker)
-
-def init_stream():
-    print("[INIT] กำลังเริ่ม background feed_worker...", flush=True)
-    # ใช้ Thread ปกติแทน start_background_task ของ socketio
-    t = threading.Thread(target=feed_worker, daemon=True)
-    t.start()
-
-
-# เรียกตอน import → gunicorn ก็รันส่วนนี้
-init_stream()
 
 
 if __name__ == "__main__":
